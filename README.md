@@ -136,31 +136,7 @@ FOOTER_TEXT=Hosted by <a href="https://example.com">Example Corp</a>
 ### Reverse Proxy
 
 In production, place a reverse proxy in front of the services to terminate TLS and route traffic.
-Below is a minimal example using Apache httpd serving frontend and backend.
-
-```apache
-<VirtualHost *:443>
-    ServerName scan.example.com
-
-    SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/scan.example.com.crt
-    SSLCertificateKeyFile /etc/ssl/private/scan.example.com.key
-
-    # Security headers
-    Header always set X-Frame-Options "SAMEORIGIN"
-    Header always set X-Content-Type-Options "nosniff"
-    Header always set Referrer-Policy "strict-origin-when-cross-origin"
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
-
-    # Backend API
-    ProxyPass /api http://localhost:48090/api
-    ProxyPassReverse /api http://localhost:48090/api
-
-    # Frontend (catch-all)
-    ProxyPass / http://localhost:48091/
-    ProxyPassReverse / http://localhost:48091/
-</VirtualHost>
-```
+An example configuration using Apache httpd serving frontend and backend can be found at `contrib/apache-site.conf`
 
 Enable the required modules:
 
@@ -168,6 +144,61 @@ Enable the required modules:
 a2enmod proxy proxy_http ssl headers
 systemctl restart apache2
 ```
+
+### Access Control
+
+Clients can be blocked based on IP address and CIDR range, country code or User-Agent string.
+Blocked clients receive a static 403 error page and the request never reaches the backend.
+
+Blocklist files are plain text files in `contrib/blocklists/`:
+
+| File | Format | Example |
+|------|--------|---------|
+| `cidr.txt` | IP addresses and CIDRs | `203.0.113.0/24` |
+| `countries.txt` | ISO 3166-1 alpha-2 codes | `CN` |
+| `useragents.txt` | regex patterns | `python-requests` |
+
+Lines starting with `#` are treated as comments and ignored.
+
+See `contrib/apache-site.conf` for a full example
+
+After editing any file, run the conversion script (as root) and reload Apache:
+
+```shell
+sudo contrib/update-blocklists.sh
+```
+
+The script writes a single `blocklist-cidr.conf` and `blocklist-env.conf` to `/etc/apache2/conf-available/` and calls `apachectl graceful`.
+Set `OUTPUT_DIR` to override the output directory, or `NO_RELOAD=1` to skip the reload:
+
+```shell
+sudo OUTPUT_DIR=/custom/path NO_RELOAD=1 contrib/update-blocklists.sh
+```
+
+#### Country blocking
+
+This feature additionally requires the Apache module `mod_geoip2` and a local copy of the MaxMind database:
+
+```shell
+sudo apt install libapache2-mod-geoip geoip-database
+```
+To log the country code, add `%{GEOIP_COUNTRY_CODE}e` to the `LogFormat` directive.
+
+#### Public blocklists
+
+Standard blocklists can be used and appended to `cidr.txt` automatically.
+Example script to update Spamhaus DROP daily:
+
+```shell
+#!/bin/bash
+curl -fsSL https://www.spamhaus.org/drop/drop.txt \
+  | grep -v '^;' >> /path/to/contrib/blocklists/cidr.txt
+/path/to/contrib/update-blocklists.sh
+```
+
+Other possible sources:
+- Spamhaus EDROP: `https://www.spamhaus.org/drop/edrop.txt`
+- Firehol level1: `https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset`
 
 ### Restrict Network Access
 
