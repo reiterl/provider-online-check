@@ -3,21 +3,22 @@ FROM node:alpine AS dev
 
 WORKDIR /app
 
-COPY . .
-
+COPY package*.json .
 RUN npm install --include=dev
+
+COPY . .
 
 EXPOSE 8080
 
 # with hot-reloading
-CMD ["npm", "run", "--include=dev"]
+CMD ["npm", "run", "dev"]
 
 # --- Prod stages ---
 
 # Build frontend assets
 FROM dev AS build
 
-RUN npm ci
+RUN npm ci --include=dev
 
 ARG VITE_BACKEND_PORT
 ARG VITE_FOOTER_TEXT
